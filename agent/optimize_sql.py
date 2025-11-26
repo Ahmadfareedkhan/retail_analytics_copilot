@@ -30,24 +30,24 @@ def optimize_sql_module():
     train_examples = [
         dspy.Example(
             question="How many products are there?",
-            db_schema=schema,
+            schema=schema,
             constraints="None",
             sql_query="SELECT COUNT(*) FROM Products;"
-        ).with_inputs("question", "db_schema", "constraints"),
+        ).with_inputs("question", "schema", "constraints"),
         
         dspy.Example(
             question="What is the total revenue from Order 10248?",
-            db_schema=schema,
+            schema=schema,
             constraints="Revenue = UnitPrice * Quantity * (1-Discount)",
             sql_query="SELECT SUM(UnitPrice * Quantity * (1 - Discount)) FROM \"Order Details\" WHERE OrderID = 10248;"
-        ).with_inputs("question", "db_schema", "constraints"),
+        ).with_inputs("question", "schema", "constraints"),
         
         dspy.Example(
             question="List all products in CategoryID 1.",
-            db_schema=schema,
+            schema=schema,
             constraints="None",
             sql_query="SELECT ProductName FROM Products WHERE CategoryID = 1;"
-        ).with_inputs("question", "db_schema", "constraints")
+        ).with_inputs("question", "schema", "constraints")
     ]
     
     # 3. Optimize
