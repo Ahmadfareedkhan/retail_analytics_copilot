@@ -9,7 +9,8 @@ from agent.tools.sqlite_tool import SQLiteTool
 
 # --- Setup DSPy (User should configure this before running) ---
 def setup_dspy():
-    lm = dspy.OllamaLocal(model="phi3.5:3.8b-mini-instruct-q4_K_M", max_tokens=1000, timeout_s=120)
+    # Updated for latest DSPy: Use dspy.LM with ollama_chat prefix
+    lm = dspy.LM(model="ollama_chat/phi3.5:3.8b-mini-instruct-q4_K_M", api_base="http://localhost:11434", api_key="")
     dspy.settings.configure(lm=lm)
 
 # --- State Definition ---
@@ -53,14 +54,22 @@ def retriever_node(state: AgentState):
 def planner_node(state: AgentState):
     planner = Planner()
     context_str = "\n\n".join([d['content'] for d in state["retrieved_docs"]])
-    pred = planner(question=state["question"], context=context_str)
-    
-    constraints = {
-        "date_range_start": pred.date_range_start,
-        "date_range_end": pred.date_range_end,
-        "kpi_formula": pred.kpi_formula,
-        "entities": pred.entities
-    }
+    try:
+        pred = planner(question=state["question"], context=context_str)
+        constraints = {
+            "date_range_start": getattr(pred, 'date_range_start', None),
+            "date_range_end": getattr(pred, 'date_range_end', None),
+            "kpi_formula": getattr(pred, 'kpi_formula', None),
+            "entities": getattr(pred, 'entities', [])
+        }
+    except Exception as e:
+        # Fallback for parsing errors
+        print(f"Planner parsing error: {e}, using default constraints")
+        constraints = {
+            "date_range_start": None, "date_range_end": None, 
+            "kpi_formula": None, "entities": []
+        }
+        
     return {"constraints": constraints}
 
 def sql_generator_node(state: AgentState):
@@ -74,9 +83,11 @@ def sql_generator_node(state: AgentState):
 
     # Load optimized module if available
     generator = TextToSQL()
-    if os.path.exists("agent/optimized_sql_module.json"):
+    opt_path = os.path.join(os.getcwd(), "agent", "optimized_sql_module.json")
+    if os.path.exists(opt_path):
         try:
-            generator.load("agent/optimized_sql_module.json")
+            generator.load(opt_path)
+            print(f"Loaded optimized SQL module from {opt_path}")
         except Exception as e:
             print(f"Warning: Could not load optimized module: {e}")
 

@@ -47,7 +47,7 @@ class TextToSQLSignature(dspy.Signature):
     - Return ONLY the SQL string starting with SELECT.
     """
     question = dspy.InputField()
-    schema = dspy.InputField(desc="SQLite CREATE TABLE statements")
+    db_schema = dspy.InputField(desc="SQLite CREATE TABLE statements")
     constraints = dspy.InputField(desc="Specific constraints (dates, formulas) from docs")
     
     sql_query = dspy.OutputField(desc="Valid SQLite query")
@@ -59,7 +59,7 @@ class TextToSQL(dspy.Module):
         self.prog = dspy.ChainOfThought(TextToSQLSignature)
         
     def forward(self, question, schema, constraints):
-        return self.prog(question=question, schema=schema, constraints=constraints)
+        return self.prog(question=question, db_schema=schema, constraints=constraints)
 
 # --- Synthesizer ---
 class SynthesizerSignature(dspy.Signature):

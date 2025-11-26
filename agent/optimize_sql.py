@@ -1,8 +1,8 @@
-import dspy
-import os
 import sys
+import os
+import dspy
 
-# Add project root to path to allow imports
+# Ensure we can import from the agent package
 sys.path.append(os.getcwd())
 
 from agent.dspy_signatures import TextToSQL
@@ -13,17 +13,14 @@ def sql_metric(example, pred, trace=None):
     tool = SQLiteTool()
     sql = pred.sql_query
     # Cleanup
-    if sql:
-        sql = sql.replace("```sql", "").replace("```", "").strip()
-    else:
-        return False
-        
+    sql = sql.replace("```sql", "").replace("```", "").strip()
     results, cols, error = tool.execute_sql(sql)
     return error is None
 
 def optimize_sql_module():
     # 1. Setup
-    lm = dspy.OllamaLocal(model="phi3.5:3.8b-mini-instruct-q4_K_M", max_tokens=1000)
+    # Updated for latest DSPy: Use dspy.LM with ollama_chat prefix
+    lm = dspy.LM(model="ollama_chat/phi3.5:3.8b-mini-instruct-q4_K_M", api_base="http://localhost:11434", api_key="")
     dspy.settings.configure(lm=lm)
     
     tool = SQLiteTool()
@@ -33,24 +30,24 @@ def optimize_sql_module():
     train_examples = [
         dspy.Example(
             question="How many products are there?",
-            schema=schema,
+            db_schema=schema,
             constraints="None",
             sql_query="SELECT COUNT(*) FROM Products;"
-        ).with_inputs("question", "schema", "constraints"),
+        ).with_inputs("question", "db_schema", "constraints"),
         
         dspy.Example(
             question="What is the total revenue from Order 10248?",
-            schema=schema,
+            db_schema=schema,
             constraints="Revenue = UnitPrice * Quantity * (1-Discount)",
             sql_query="SELECT SUM(UnitPrice * Quantity * (1 - Discount)) FROM \"Order Details\" WHERE OrderID = 10248;"
-        ).with_inputs("question", "schema", "constraints"),
+        ).with_inputs("question", "db_schema", "constraints"),
         
         dspy.Example(
             question="List all products in CategoryID 1.",
-            schema=schema,
+            db_schema=schema,
             constraints="None",
             sql_query="SELECT ProductName FROM Products WHERE CategoryID = 1;"
-        ).with_inputs("question", "schema", "constraints")
+        ).with_inputs("question", "db_schema", "constraints")
     ]
     
     # 3. Optimize
@@ -61,11 +58,9 @@ def optimize_sql_module():
     compiled_sql = teleprompter.compile(TextToSQL(), trainset=train_examples)
     
     # 4. Save
-    if not os.path.exists("agent"):
-        os.makedirs("agent")
-    
-    compiled_sql.save("agent/optimized_sql_module.json")
-    print("Optimization complete! Saved to agent/optimized_sql_module.json")
+    output_path = os.path.join("agent", "optimized_sql_module.json")
+    compiled_sql.save(output_path)
+    print(f"Optimization complete! Saved to {output_path}")
 
 if __name__ == "__main__":
     optimize_sql_module()
