@@ -39,12 +39,16 @@ class AgentState(TypedDict):
 
 def router_node(state: AgentState):
     router = Router()
-    pred = router(question=state["question"])
-    # Fallback if classification is weird
-    cls = pred.classification.lower().strip()
-    if "hybrid" in cls: return {"classification": "hybrid"}
-    if "sql" in cls: return {"classification": "sql"}
-    return {"classification": "rag"}
+    try:
+        pred = router(question=state["question"])
+        # Fallback if classification is weird
+        cls = pred.classification.lower().strip()
+        if "hybrid" in cls: return {"classification": "hybrid"}
+        if "sql" in cls: return {"classification": "sql"}
+        return {"classification": "rag"}
+    except Exception as e:
+        print(f"Router error: {e}, defaulting to hybrid")
+        return {"classification": "hybrid"}
 
 def retriever_node(state: AgentState):
     retriever = SimpleRetriever() # Reloads index, inefficient but stateless safe
@@ -130,18 +134,26 @@ def synthesizer_node(state: AgentState):
     context_str = "\n\n".join([d['content'] for d in state.get("retrieved_docs", [])])
     sql_info = f"SQL: {state.get('sql_query')}\nResults: {state.get('sql_results')}"
     
-    pred = synthesizer(
-        question=state["question"],
-        sql_query=state.get("sql_query", ""),
-        sql_result=str(state.get("sql_results", [])),
-        retrieved_context=context_str,
-        format_hint=state["format_hint"]
-    )
-    
+    try:
+        pred = synthesizer(
+            question=state["question"],
+            sql_query=state.get("sql_query", ""),
+            sql_result=str(state.get("sql_results", [])),
+            retrieved_context=context_str,
+            format_hint=state["format_hint"]
+        )
+        final_answer = pred.final_answer
+        citations = pred.citations
+    except Exception as e:
+        print(f"Synthesizer error: {e}")
+        # Fallback: try to extract answer from error message or return basic error
+        final_answer = f"Error synthesizing answer: {str(e)}"
+        citations = []
+
     # Parse citations and answer
     return {
-        "final_answer": pred.final_answer,
-        "citations": pred.citations
+        "final_answer": final_answer,
+        "citations": citations
     }
 
 # --- Graph Construction ---
