@@ -10,6 +10,10 @@ class SimpleRetriever:
         self.bm25 = None
         self._load_and_index()
 
+    def _tokenize(self, text: str) -> List[str]:
+        # Better tokenization: alphanumeric only, lowercase
+        return re.findall(r'\b\w+\b', text.lower())
+
     def _load_and_index(self):
         self.chunks = []
         tokenized_corpus = []
@@ -21,7 +25,6 @@ class SimpleRetriever:
                     content = f.read()
                 
                 # Simple splitting by headers or double newlines
-                # We assign an ID based on filename and index
                 raw_chunks = re.split(r'\n#{1,3} |\n\n', content)
                 
                 for i, text in enumerate(raw_chunks):
@@ -32,8 +35,8 @@ class SimpleRetriever:
                             "content": text.strip(),
                             "source": filename
                         })
-                        # Simple tokenization for BM25
-                        tokenized_corpus.append(text.lower().split())
+                        # Improved tokenization
+                        tokenized_corpus.append(self._tokenize(text))
         
         if tokenized_corpus:
             self.bm25 = BM25Okapi(tokenized_corpus)
@@ -42,7 +45,7 @@ class SimpleRetriever:
         if not self.bm25:
             return []
             
-        tokenized_query = query.lower().split()
+        tokenized_query = self._tokenize(query)
         # Get top k scores
         scores = self.bm25.get_scores(tokenized_query)
         top_n_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
