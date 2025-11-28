@@ -1,6 +1,7 @@
 import dspy
 import sqlite3
 import os
+import time
 from typing import Annotated, TypedDict, List, Dict, Any, Optional, Union
 from langgraph.graph import StateGraph, END
 from agent.dspy_signatures import Router, Planner, TextToSQL, Synthesizer
@@ -9,9 +10,20 @@ from agent.tools.sqlite_tool import SQLiteTool
 
 # --- Setup DSPy (User should configure this before running) ---
 def setup_dspy():
+    # Disable caching to prevent sticky hallucinations
+    os.environ["DSP_CACHEBOOL"] = "False"
+    
     # Updated for latest DSPy: Use dspy.LM with ollama_chat prefix
     lm = dspy.LM(model="ollama_chat/phi3.5:3.8b-mini-instruct-q4_K_M", api_base="http://localhost:11434", api_key="")
     dspy.settings.configure(lm=lm)
+
+# Global retriever cache
+_RETRIEVER_INSTANCE = None
+def get_retriever():
+    global _RETRIEVER_INSTANCE
+    if _RETRIEVER_INSTANCE is None:
+        _RETRIEVER_INSTANCE = SimpleRetriever()
+    return _RETRIEVER_INSTANCE
 
 # --- State Definition ---
 class AgentState(TypedDict):
@@ -38,11 +50,14 @@ class AgentState(TypedDict):
 # --- Nodes ---
 
 def router_node(state: AgentState):
+    start = time.time()
+    print(f"DEBUG: Starting Router Node")
     router = Router()
     try:
         pred = router(question=state["question"])
         # Fallback if classification is weird
         cls = pred.classification.lower().strip()
+        print(f"DEBUG: Router finished in {time.time() - start:.2f}s. Classification: {cls}")
         if "hybrid" in cls: return {"classification": "hybrid"}
         if "sql" in cls: return {"classification": "sql"}
         return {"classification": "rag"}
@@ -51,15 +66,25 @@ def router_node(state: AgentState):
         return {"classification": "hybrid"}
 
 def retriever_node(state: AgentState):
-    retriever = SimpleRetriever() # Reloads index, inefficient but stateless safe
-    docs = retriever.search(state["question"], k=3)
+    start = time.time()
+    print(f"DEBUG: Starting Retriever Node")
+    retriever = get_retriever() # Use cached instance
+    docs = retriever.search(state["question"], k=1)
+    print(f"DEBUG: Retriever finished in {time.time() - start:.2f}s")
     return {"retrieved_docs": docs}
 
 def planner_node(state: AgentState):
+    start = time.time()
+    print(f"DEBUG: Starting Planner Node")
     planner = Planner()
     context_str = "\n\n".join([d['content'] for d in state["retrieved_docs"]])
     try:
+        # Force bypass cache by adding a timestamp to the input (hacky but effective for debugging)
+        # or just rely on the fact that we are debugging.
         pred = planner(question=state["question"], context=context_str)
+        
+        print(f"DEBUG: Planner Output: {pred}")
+        
         constraints = {
             "date_range_start": getattr(pred, 'date_range_start', None),
             "date_range_end": getattr(pred, 'date_range_end', None),
@@ -73,10 +98,12 @@ def planner_node(state: AgentState):
             "date_range_start": None, "date_range_end": None, 
             "kpi_formula": None, "entities": []
         }
-        
+    print(f"DEBUG: Planner finished in {time.time() - start:.2f}s")
     return {"constraints": constraints}
 
 def sql_generator_node(state: AgentState):
+    start = time.time()
+    print(f"DEBUG: Starting SQL Generator Node")
     tool = SQLiteTool()
     schema = tool.get_schema() # Get full schema or subset
     
@@ -101,15 +128,25 @@ def sql_generator_node(state: AgentState):
         constraints=constraints_str
     )
     
-    # Clean SQL (remove markdown code blocks if present)
-    raw_sql = pred.sql_query.strip()
-    clean_sql = raw_sql.replace("```sql", "").replace("```", "").strip()
+    print(f"DEBUG: SQL Generator Output: {pred}")
     
+    # Clean SQL (remove markdown code blocks if present)
+    if hasattr(pred, 'sql_query'):
+        raw_sql = pred.sql_query.strip()
+        clean_sql = raw_sql.replace("```sql", "").replace("```", "").strip()
+    else:
+        clean_sql = ""
+        print("DEBUG: No sql_query field in prediction!")
+    
+    print(f"DEBUG: SQL Generator finished in {time.time() - start:.2f}s")
     return {"sql_query": clean_sql, "schema": schema}
 
 def executor_node(state: AgentState):
+    start = time.time()
+    print(f"DEBUG: Starting Executor Node")
     tool = SQLiteTool()
     results, cols, error = tool.execute_sql(state["sql_query"])
+    print(f"DEBUG: Executor finished in {time.time() - start:.2f}s")
     return {
         "sql_results": results,
         "sql_columns": cols,
@@ -129,10 +166,20 @@ def repair_node(state: AgentState):
     }
 
 def synthesizer_node(state: AgentState):
+    start = time.time()
+    print(f"DEBUG: Starting Synthesizer Node")
     synthesizer = Synthesizer()
     
     context_str = "\n\n".join([d['content'] for d in state.get("retrieved_docs", [])])
-    sql_info = f"SQL: {state.get('sql_query')}\nResults: {state.get('sql_results')}"
+    
+    # Truncate results to avoid context overflow
+    results = state.get("sql_results", [])
+    if results and len(results) > 20:
+        results_str = str(results[:20]) + f"\n... ({len(results)-20} more rows omitted)"
+    else:
+        results_str = str(results)
+        
+    sql_info = f"SQL: {state.get('sql_query')}\nResults: {results_str}"
     
     try:
         pred = synthesizer(
@@ -151,6 +198,7 @@ def synthesizer_node(state: AgentState):
         citations = []
 
     # Parse citations and answer
+    print(f"DEBUG: Synthesizer finished in {time.time() - start:.2f}s")
     return {
         "final_answer": final_answer,
         "citations": citations

@@ -42,8 +42,9 @@ class Planner(dspy.Module):
 class TextToSQLSignature(dspy.Signature):
     """Generate a SQLite query based on the question, schema, and constraints.
     - Use 'Orders', 'Order Details', 'Products', 'Customers' tables.
-    - Don't hallucinate columns.
-    - Use specific date ranges if provided.
+    - IMPORTANT: Use standard SQLite syntax. Dates are strings 'YYYY-MM-DD'.
+    - Use "OrderDate BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'" for date ranges.
+    - NEVER use 'BETWEDIR', 'BETWEWHEN', or other made-up keywords.
     - Return ONLY the SQL string starting with SELECT.
     """
     question = dspy.InputField()

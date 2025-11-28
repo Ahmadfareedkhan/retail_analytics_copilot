@@ -1,0 +1,1 @@
+{"id": "rag_policy_beverages_return_days", "final_answer": "14", "sql": "", "confidence": 0.8, "explanation": "Generated based on hybrid analysis of docs and DB.", "citations": "['# Returns & Policy']"}

@@ -47,6 +47,13 @@ def optimize_sql_module():
             schema=schema,
             constraints="None",
             sql_query="SELECT ProductName FROM Products WHERE CategoryID = 1;"
+        ).with_inputs("question", "schema", "constraints"),
+
+        dspy.Example(
+            question="Total sales in Q1 1997?",
+            schema=schema,
+            constraints="date_range_start='1997-01-01', date_range_end='1997-03-31'",
+            sql_query="SELECT SUM(UnitPrice * Quantity * (1 - Discount)) FROM \"Order Details\" JOIN Orders ON \"Order Details\".OrderID = Orders.OrderID WHERE OrderDate BETWEEN '1997-01-01' AND '1997-03-31';"
         ).with_inputs("question", "schema", "constraints")
     ]
     
