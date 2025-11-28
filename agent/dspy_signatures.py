@@ -41,17 +41,19 @@ class Planner(dspy.Module):
 # --- NL to SQL ---
 class TextToSQLSignature(dspy.Signature):
     """Generate a SQLite query based on the question, schema, and constraints.
-    - Use 'Orders', 'Order Details', 'Products', 'Customers' tables.
-    - IMPORTANT: Use standard SQLite syntax. Dates are strings 'YYYY-MM-DD'.
-    - Use "OrderDate BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'" for date ranges.
-    - NEVER use 'BETWEDIR', 'BETWEWHEN', or other made-up keywords.
-    - Return ONLY the SQL string starting with SELECT.
+    
+    CRITICAL RULES:
+    - Table names: Orders, "Order Details" (with quotes!), Products, Categories, Customers
+    - Date filtering: WHERE OrderDate BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
+    - NEVER use made-up keywords like BETWEDIR, BETWEWHEN
+    - For JOINs: JOIN "Order Details" od ON Orders.OrderID = od.OrderID
+    - Return ONLY valid SQLite syntax starting with SELECT
     """
     question = dspy.InputField()
-    schema = dspy.InputField(desc="SQLite CREATE TABLE statements")
+    db_schema = dspy.InputField(desc="SQLite CREATE TABLE statements")
     constraints = dspy.InputField(desc="Specific constraints (dates, formulas) from docs")
     
-    sql_query = dspy.OutputField(desc="Valid SQLite query")
+    sql_query = dspy.OutputField(desc="Valid SQLite query with proper table quoting")
     explanation = dspy.OutputField(desc="Brief explanation of the logic")
 
 class TextToSQL(dspy.Module):
@@ -59,8 +61,8 @@ class TextToSQL(dspy.Module):
         super().__init__()
         self.prog = dspy.ChainOfThought(TextToSQLSignature)
         
-    def forward(self, question, schema, constraints):
-        return self.prog(question=question, schema=schema, constraints=constraints)
+    def forward(self, question, db_schema, constraints):
+        return self.prog(question=question, db_schema=db_schema, constraints=constraints)
 
 # --- Synthesizer ---
 class SynthesizerSignature(dspy.Signature):

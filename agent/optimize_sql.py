@@ -30,39 +30,39 @@ def optimize_sql_module():
     train_examples = [
         dspy.Example(
             question="How many products are there?",
-            schema=schema,
+            db_schema=schema,
             constraints="None",
             sql_query="SELECT COUNT(*) FROM Products;"
-        ).with_inputs("question", "schema", "constraints"),
+        ).with_inputs("question", "db_schema", "constraints"),
         
         dspy.Example(
             question="What is the total revenue from Order 10248?",
-            schema=schema,
+            db_schema=schema,
             constraints="Revenue = UnitPrice * Quantity * (1-Discount)",
             sql_query="SELECT SUM(UnitPrice * Quantity * (1 - Discount)) FROM \"Order Details\" WHERE OrderID = 10248;"
-        ).with_inputs("question", "schema", "constraints"),
+        ).with_inputs("question", "db_schema", "constraints"),
         
         dspy.Example(
             question="List all products in CategoryID 1.",
-            schema=schema,
+            db_schema=schema,
             constraints="None",
             sql_query="SELECT ProductName FROM Products WHERE CategoryID = 1;"
-        ).with_inputs("question", "schema", "constraints"),
+        ).with_inputs("question", "db_schema", "constraints"),
 
         dspy.Example(
             question="Total sales in Q1 1997?",
-            schema=schema,
+            db_schema=schema,
             constraints="date_range_start='1997-01-01', date_range_end='1997-03-31'",
             sql_query="SELECT SUM(UnitPrice * Quantity * (1 - Discount)) FROM \"Order Details\" JOIN Orders ON \"Order Details\".OrderID = Orders.OrderID WHERE OrderDate BETWEEN '1997-01-01' AND '1997-03-31';"
-        ).with_inputs("question", "schema", "constraints")
+        ).with_inputs("question", "db_schema", "constraints")
     ]
     
-    # 3. Optimize
+    # 3. Optimize (reduced demos for lower memory usage)
     print("Starting optimization with BootstrapFewShot...")
     from dspy.teleprompt import BootstrapFewShot
     
-    teleprompter = BootstrapFewShot(metric=sql_metric, max_bootstrapped_demos=2)
-    compiled_sql = teleprompter.compile(TextToSQL(), trainset=train_examples)
+    teleprompter = BootstrapFewShot(metric=sql_metric, max_bootstrapped_demos=1, max_labeled_demos=2)
+    compiled_sql = teleprompter.compile(TextToSQL(), trainset=train_examples[:2])  # Use only 2 examples to reduce load
     
     # 4. Save
     output_path = os.path.join("agent", "optimized_sql_module.json")

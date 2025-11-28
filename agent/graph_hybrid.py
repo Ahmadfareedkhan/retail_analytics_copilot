@@ -124,7 +124,7 @@ def sql_generator_node(state: AgentState):
 
     pred = generator(
         question=state["question"],
-        schema=schema,
+        db_schema=schema,
         constraints=constraints_str
     )
     
@@ -134,6 +134,39 @@ def sql_generator_node(state: AgentState):
     if hasattr(pred, 'sql_query'):
         raw_sql = pred.sql_query.strip()
         clean_sql = raw_sql.replace("```sql", "").replace("```", "").strip()
+        
+        # --- REGEX REPAIR FOR COMMON TYPOS ---
+        import re
+        
+        # Fix BETWEEN typos (BETWEDIR, BETWEWHEN, etc.)
+        clean_sql = re.sub(r'\bBETWE\w*\b', 'BETWEEN', clean_sql, flags=re.IGNORECASE)
+        
+        # Fix malformed BETWEEN clauses like: BETWEEN 'X' AND column <= 'Y'
+        # Should be: BETWEEN 'X' AND 'Y'
+        clean_sql = re.sub(
+            r"BETWEEN\s*'([^']+)'\s+AND\s+[\w.]+\s*<=?\s*'([^']+)'",
+            r"BETWEEN '\1' AND '\2'",
+            clean_sql,
+            flags=re.IGNORECASE
+        )
+        
+        # Fix Table Name: [Order Details] -> "Order Details"
+        clean_sql = re.sub(r'\[Order Details\]', '"Order Details"', clean_sql, flags=re.IGNORECASE)
+        clean_sql = re.sub(r'\["Order Details"\]', '"Order Details"', clean_sql, flags=re.IGNORECASE)
+        
+        # Fix unquoted OrderDetails -> "Order Details"
+        clean_sql = re.sub(r'\bOrderDetails\b', '"Order Details"', clean_sql, flags=re.IGNORECASE)
+        
+        # Fix unquoted Order Details (not already quoted) -> "Order Details"
+        clean_sql = re.sub(r'(?<!")Order Details(?!")', '"Order Details"', clean_sql, flags=re.IGNORECASE)
+        
+        # Fix double quotes if they were already there
+        clean_sql = clean_sql.replace('""Order Details""', '"Order Details"')
+        
+        # Fix extra spaces in column references like "OD. OrderDate" -> "od.OrderDate"
+        clean_sql = re.sub(r'(\w+)\.\s+(\w+)', r'\1.\2', clean_sql)
+        
+        print(f"DEBUG: Auto-repaired SQL: {clean_sql}")
     else:
         clean_sql = ""
         print("DEBUG: No sql_query field in prediction!")
@@ -156,13 +189,29 @@ def executor_node(state: AgentState):
 def repair_check_node(state: AgentState):
     """Logic to decide if we need to repair SQL."""
     if state["sql_error"] and state["repair_count"] < 2:
+        print(f"DEBUG: SQL Error detected, attempting repair ({state['repair_count'] + 1}/2): {state['sql_error']}")
         return "repair"
+    if state["sql_error"]:
+        print(f"DEBUG: Max repairs reached. Proceeding to synthesizer with error: {state['sql_error']}")
     return "synthesize"
 
 def repair_node(state: AgentState):
+    error = state["sql_error"] or "Invalid format or empty result"
+    # Add specific hints based on common errors
+    hints = []
+    if "no such column" in error.lower():
+        hints.append("Check column names match the schema exactly.")
+    if "no such table" in error.lower():
+        hints.append("Use exact table names: Orders, \"Order Details\", Products, Categories, Customers.")
+    if "syntax error" in error.lower():
+        hints.append("Use standard SQLite syntax. For date ranges use: OrderDate BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'.")
+    
+    feedback = f"{error}" + (f" HINTS: {' '.join(hints)}" if hints else "")
+    print(f"DEBUG: Repair feedback: {feedback}")
+    
     return {
         "repair_count": state["repair_count"] + 1,
-        "repair_feedback": state["sql_error"] or "Invalid format or empty result"
+        "repair_feedback": feedback
     }
 
 def synthesizer_node(state: AgentState):
